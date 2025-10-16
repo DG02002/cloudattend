@@ -6,7 +6,7 @@
  */
 
 const API_URL =
-  "https://script.google.com/macros/s/AKfycbx86ynSP7SkxUqUT98B8Cm2QkeP18NDBPCKWXf5pumFdCCBruYLsTZzswLJ8kZ4vQQ3/exec";
+  "https://script.google.com/macros/s/AKfycbyeu3vvlPiiu1a8tqThb8WSXtKytRGrGr6cfSVrLht8Iq3vNgTTxItfXaEPOuXxu8NG/exec";
 
 /**
  * @type {{
