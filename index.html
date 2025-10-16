@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CloudAttend Dashboard</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="app-header">
+        <div class="header-copy">
+          <h1>CloudAttend</h1>
+          <p>RFID attendance overview for today</p>
+        </div>
+        <div class="header-actions">
+          <button id="refreshButton" class="primary">Refresh</button>
+          <span id="lastUpdated" class="subtle">Updated: --</span>
+        </div>
+      </header>
+
+      <main class="content">
+        <section class="panel" aria-labelledby="attendance-title">
+          <div class="panel-header">
+            <h2 id="attendance-title">Today&rsquo;s Attendance</h2>
+            <div class="panel-tools">
+              <label class="search" for="searchInput">
+                <span class="sr-only">Search</span>
+                <input
+                  id="searchInput"
+                  type="search"
+                  placeholder="Search by name or SUID"
+                  autocomplete="off"
+                />
+              </label>
+            </div>
+          </div>
+
+          <div class="metrics">
+            <div class="metric-card">
+              <span class="metric-label">Checked-In</span>
+              <span class="metric-value" id="presentCount">0</span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">Total Records</span>
+              <span class="metric-value" id="totalCount">0</span>
+            </div>
+          </div>
+
+          <div class="table-wrapper" role="region" aria-live="polite">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">Student</th>
+                  <th scope="col" class="align-right">SUID</th>
+                  <th scope="col">Check-In</th>
+                  <th scope="col">Check-Out</th>
+                  <th scope="col">Status</th>
+                </tr>
+              </thead>
+              <tbody id="attendanceBody">
+                <tr>
+                  <td colspan="5" class="empty">Loading&hellip;</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel" aria-labelledby="unregistered-title">
+          <div class="panel-header">
+            <h2 id="unregistered-title">Unregistered Cards</h2>
+          </div>
+
+          <div class="unregistered-grid">
+            <div class="card-list" id="unregisteredList" aria-live="polite">
+              <p class="placeholder">Loading&hellip;</p>
+            </div>
+
+            <aside class="card-form" aria-label="Register student form">
+              <h3>Register Student</h3>
+              <form id="registrationForm" novalidate>
+                <label class="form-field">
+                  <span>RFID Card UID</span>
+                  <input
+                    id="formCardUid"
+                    name="cardUid"
+                    type="text"
+                    placeholder="Select a card from the list"
+                    readonly
+                    required
+                  />
+                </label>
+                <label class="form-field">
+                  <span>SUID</span>
+                  <input id="formSuid" name="suid" type="text" required />
+                </label>
+                <label class="form-field">
+                  <span>First Name</span>
+                  <input
+                    id="formFirstName"
+                    name="firstName"
+                    type="text"
+                    required
+                  />
+                </label>
+                <label class="form-field">
+                  <span>Last Name</span>
+                  <input
+                    id="formLastName"
+                    name="lastName"
+                    type="text"
+                    required
+                  />
+                </label>
+                <label class="form-field">
+                  <span>Department</span>
+                  <input
+                    id="formDepartment"
+                    name="department"
+                    type="text"
+                    required
+                  />
+                </label>
+                <label class="form-field">
+                  <span>Year</span>
+                  <input id="formYear" name="year" type="text" required />
+                </label>
+
+                <div class="form-actions">
+                  <button type="submit" class="primary">Register</button>
+                  <button type="button" id="clearSelectionButton">Clear</button>
+                </div>
+              </form>
+            </aside>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+    <script src="script.js" defer></script>
+  </body>
+</html>
