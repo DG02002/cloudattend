@@ -4,10 +4,16 @@
  */
 
 // Sheet configuration constants.
-const CLOUDATTEND_DB = "CloudAttend_DB";
+const CLOUDATTEND_DB_ID = "19jgGjDbxysLfbNrPufEvPOo9BJFK8-grxzY7VpW01WY";
 const STUDENTS_SHEET_NAME = "Students";
 const ATTENDANCE_SHEET_NAME = "Attendance";
 const UNREGISTERED_SHEET_NAME = "Unregistered_CARDs";
+const TIME_ZONE = "Asia/Kolkata";
+const CORS_ALLOW_ORIGIN = "*";
+const CORS_ALLOW_METHODS = "GET,POST,OPTIONS";
+const CORS_ALLOW_HEADERS = "Content-Type";
+const HUMAN_DATE_FORMAT = "d MMMM yyyy"; // e.g., 17 October 2025
+const HUMAN_TIME_FORMAT = "h:mm a"; // e.g., 1:45 PM
 
 /**
  * Handles POST requests from the RFID scanner.
@@ -36,14 +42,15 @@ function doPost(e) {
       }
 
       const now = new Date();
-      const timeZone = Session.getScriptTimeZone();
+      const timeZone = TIME_ZONE;
       const isoTimestamp = Utilities.formatDate(
         now,
         timeZone,
         "yyyy-MM-dd'T'HH:mm:ssXXX"
       );
-      const currentDate = Utilities.formatDate(now, timeZone, "yyyy-MM-dd");
-      const currentTime = Utilities.formatDate(now, timeZone, "HH:mm:ss");
+      const dateKey = Utilities.formatDate(now, timeZone, "yyyy-MM-dd");
+      const humanDate = Utilities.formatDate(now, timeZone, HUMAN_DATE_FORMAT);
+      const humanTime = Utilities.formatDate(now, timeZone, HUMAN_TIME_FORMAT);
 
       const studentsSheet = getSheet(STUDENTS_SHEET_NAME);
       const attendanceSheet = getSheet(ATTENDANCE_SHEET_NAME);
@@ -51,7 +58,7 @@ function doPost(e) {
 
       const student = findStudentByUid(studentsSheet, uid);
       if (!student) {
-        appendUnregistered(unregisteredSheet, uid, currentDate, currentTime);
+        appendUnregistered(unregisteredSheet, uid, humanDate, humanTime);
         return jsonResponse({
           status: "ok",
           action: "unregistered",
@@ -60,54 +67,54 @@ function doPost(e) {
       }
 
       const fullName = `${student.FirstName} ${student.LastName}`.trim();
-      const existingRow = findAttendanceRow(attendanceSheet, uid, currentDate);
+      // Ensure headers exist and include a machine-usable DateKey plus human-readable Date/Time
+      const attendanceHeaders = ensureAttendanceHeaders(attendanceSheet);
+      const headerMap = attendanceHeaders.reduce((acc, header, idx) => {
+        acc[header] = idx + 1; // 1-based for Range ops
+        return acc;
+      }, {});
 
-      if (!existingRow) {
-        // First scan of the day for this UID → create check-in row.
-        attendanceSheet.appendRow([
-          uid,
-          student.SUID,
-          currentDate,
-          currentTime,
-          "",
-          fullName,
-        ]);
+      // Find latest open attendance row (today, same UID, without checkout)
+      const openRow = findOpenAttendanceRowForDate(
+        attendanceSheet,
+        uid,
+        dateKey
+      );
+
+      if (!openRow) {
+        // No open session for today → create new check-in row
+        const rowValues = [];
+        rowValues[headerMap.CARD_UID - 1] = uid;
+        rowValues[headerMap.SUID - 1] = student.SUID;
+        rowValues[headerMap.Date - 1] = humanDate;
+        rowValues[headerMap.DateKey - 1] = dateKey;
+        rowValues[headerMap.CheckInTime - 1] = humanTime;
+        rowValues[headerMap.CheckOutTime - 1] = "";
+        rowValues[headerMap.Name - 1] = fullName;
+        attendanceSheet.appendRow(rowValues);
         return jsonResponse({
           status: "ok",
           action: "checkin",
           timestamp: isoTimestamp,
+          firstName: student.FirstName || "",
+          fullName,
         });
       }
 
-      const checkoutCell = attendanceSheet.getRange(
-        existingRow.row,
-        existingRow.headers.CheckOutTime
-      );
-      const checkoutValue = checkoutCell.getValue();
-
-      if (!checkoutValue) {
-        // Closing out the active attendance record.
-        checkoutCell.setValue(currentTime);
-        return jsonResponse({
-          status: "ok",
-          action: "checkout",
-          timestamp: isoTimestamp,
-        });
+      // Open session exists → set checkout time
+      const checkoutCol = openRow.headers.CheckOutTime;
+      if (!checkoutCol) {
+        throw new Error(
+          "Attendance sheet headers must include CheckOutTime column"
+        );
       }
-
-      // All previous records for today already closed → start a new entry.
-      attendanceSheet.appendRow([
-        uid,
-        student.SUID,
-        currentDate,
-        currentTime,
-        "",
-        fullName,
-      ]);
+      attendanceSheet.getRange(openRow.row, checkoutCol).setValue(humanTime);
       return jsonResponse({
         status: "ok",
-        action: "checkin",
+        action: "checkout",
         timestamp: isoTimestamp,
+        firstName: student.FirstName || "",
+        fullName,
       });
     }
 
@@ -137,6 +144,61 @@ function doPost(e) {
       );
     }
 
+    if (action === "delete") {
+      const type = (
+        (request.data.type || request.data.kind || "").toString() || ""
+      ).toLowerCase();
+      if (type === "unregistered") {
+        const uid = (request.data.uid || request.data.cardUid || "")
+          .toString()
+          .trim()
+          .toUpperCase();
+        if (!uid) {
+          return jsonResponse(
+            { status: "error", message: "uid is required" },
+            400
+          );
+        }
+        const sheet = getSheet(UNREGISTERED_SHEET_NAME);
+        const deleted = deleteUnregisteredByUid(sheet, uid);
+        return jsonResponse({ status: "ok", action: "delete", deleted }, 200);
+      }
+      if (type === "attendance") {
+        const uid = (request.data.uid || request.data.cardUid || "")
+          .toString()
+          .trim()
+          .toUpperCase();
+        const dateKey = (request.data.dateKey || "").toString().trim();
+        const checkInTime = (
+          request.data.checkInTime ||
+          request.data.checkin ||
+          ""
+        )
+          .toString()
+          .trim();
+        if (!uid || !dateKey || !checkInTime) {
+          return jsonResponse(
+            {
+              status: "error",
+              message: "uid, dateKey and checkInTime are required",
+            },
+            400
+          );
+        }
+        const sheet = getSheet(ATTENDANCE_SHEET_NAME);
+        ensureAttendanceHeaders(sheet);
+        const removed = deleteAttendanceRow(sheet, uid, dateKey, checkInTime);
+        return jsonResponse(
+          { status: removed ? "ok" : "error", action: "delete", removed },
+          removed ? 200 : 404
+        );
+      }
+      return jsonResponse(
+        { status: "error", message: "Unsupported delete type" },
+        400
+      );
+    }
+
     return jsonResponse(
       { status: "error", message: "Unsupported action" },
       400
@@ -149,13 +211,27 @@ function doPost(e) {
 }
 
 /**
- * Handles GET requests to provide dashboard data.
+ * Handles GET requests for health checks, roster exports, or dashboard data.
+ * @param {GoogleAppsScript.Events.DoGet} e
  * @return {GoogleAppsScript.Content.TextOutput}
  */
-function doGet() {
+function doGet(e) {
+  const params = (e && e.parameter) || {};
+
+  if (params.health === "1") {
+    return handleHealthCheck();
+  }
+
+  if (params.registry === "1") {
+    return handleRosterExport();
+  }
+
   const studentsSheet = getSheet(STUDENTS_SHEET_NAME);
   const attendanceSheet = getSheet(ATTENDANCE_SHEET_NAME);
   const unregisteredSheet = getSheet(UNREGISTERED_SHEET_NAME);
+
+  // Ensure attendance headers and DateKey column exist so clients can filter today reliably
+  ensureAttendanceHeaders(attendanceSheet);
 
   const response = {
     status: "ok",
@@ -167,6 +243,103 @@ function doGet() {
   };
 
   return jsonResponse(response, 200);
+}
+
+/**
+ * Handles CORS preflight requests.
+ * @param {GoogleAppsScript.Events.DoPost} _e
+ * @return {GoogleAppsScript.Content.TextOutput}
+ */
+function doOptions(_e) {
+  return applyCorsHeaders(ContentService.createTextOutput(""));
+}
+
+/**
+ * Lightweight endpoint for device health verification.
+ * @return {GoogleAppsScript.Content.TextOutput}
+ */
+function handleHealthCheck() {
+  try {
+    getSheet(STUDENTS_SHEET_NAME);
+    getSheet(ATTENDANCE_SHEET_NAME);
+    getSheet(UNREGISTERED_SHEET_NAME);
+    return jsonResponse({ status: "ok" }, 200);
+  } catch (error) {
+    return jsonResponse({ status: "error", message: error.message }, 500);
+  }
+}
+
+/**
+ * Streams the student roster as a CSV payload.
+ * @return {GoogleAppsScript.Content.TextOutput}
+ */
+function handleRosterExport() {
+  try {
+    const studentsSheet = getSheet(STUDENTS_SHEET_NAME);
+    const csv = buildRosterCsv(studentsSheet);
+    const output = ContentService.createTextOutput(csv).setMimeType(
+      ContentService.MimeType.CSV
+    );
+    return applyCorsHeaders(output);
+  } catch (error) {
+    return jsonResponse({ status: "error", message: error.message }, 500);
+  }
+}
+
+/**
+ * Converts the Students sheet into a minimal CSV feed.
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+ * @return {string}
+ */
+function buildRosterCsv(sheet) {
+  const values = sheet.getDataRange().getValues();
+  const headerLine = "CARD_UID,FirstName,LastName";
+  if (!values.length) {
+    return `${headerLine}\n`;
+  }
+
+  const headers = values.shift();
+  const uidIndex = headers.indexOf("CARD_UID");
+  const firstIndex = headers.indexOf("FirstName");
+  const lastIndex = headers.indexOf("LastName");
+
+  if (uidIndex === -1 || firstIndex === -1 || lastIndex === -1) {
+    throw new Error(
+      "Students sheet missing CARD_UID/FirstName/LastName headers"
+    );
+  }
+
+  const lines = [headerLine];
+  for (let i = 0; i < values.length; i += 1) {
+    const row = values[i];
+    const rawUid = (row[uidIndex] || "").toString().trim();
+    const rawFirst = (row[firstIndex] || "").toString().trim();
+    const rawLast = (row[lastIndex] || "").toString().trim();
+
+    if (!rawUid || !rawFirst) {
+      continue;
+    }
+
+    const uid = rawUid.toUpperCase();
+    lines.push(
+      `${escapeCsv(uid)},${escapeCsv(rawFirst)},${escapeCsv(rawLast)}`
+    );
+  }
+
+  return `${lines.join("\n")}\n`;
+}
+
+/**
+ * Escapes CSV fields when needed.
+ * @param {string} value
+ * @return {string}
+ */
+function escapeCsv(value) {
+  const str = (value || "").toString();
+  if (/[",\n]/.test(str)) {
+    return '"' + str.replace(/"/g, '""') + '"';
+  }
+  return str;
 }
 
 /**
@@ -199,7 +372,7 @@ function parseRequest(e) {
  * @return {GoogleAppsScript.Spreadsheet.Sheet}
  */
 function getSheet(name) {
-  const spreadsheet = SpreadsheetApp.openByName(CLOUDATTEND_DB);
+  const spreadsheet = SpreadsheetApp.openById(CLOUDATTEND_DB_ID);
   const sheet = spreadsheet.getSheetByName(name);
   if (!sheet) {
     throw new Error(`Sheet not found: ${name}`);
@@ -277,6 +450,104 @@ function findAttendanceRow(sheet, uid, dateKey) {
 }
 
 /**
+ * Finds the latest open (no checkout) attendance row for a UID on the dateKey.
+ * Falls back to matching by Date column if legacy rows lack DateKey.
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+ * @param {string} uid
+ * @param {string} dateKey
+ * @return {{ row: number, headers: Object }|null}
+ */
+function findOpenAttendanceRowForDate(sheet, uid, dateKey) {
+  const values = sheet.getDataRange().getValues();
+  if (values.length <= 1) {
+    return null;
+  }
+
+  const headers = values.shift();
+  const headerMap = headers.reduce((acc, header, idx) => {
+    acc[header] = idx + 1; // 1-based
+    return acc;
+  }, {});
+
+  const uidCol = headerMap.CARD_UID;
+  const dateKeyCol = headerMap.DateKey;
+  const dateCol = headerMap.Date;
+  const checkoutCol = headerMap.CheckOutTime;
+
+  if (!uidCol || !dateCol || !checkoutCol) {
+    throw new Error(
+      "Attendance sheet headers must include CARD_UID, Date, and CheckOutTime"
+    );
+  }
+
+  // Iterate from bottom (latest) upwards
+  for (let i = values.length - 1; i >= 0; i -= 1) {
+    const rowValues = values[i];
+    const rowUid = (rowValues[uidCol - 1] || "").toString().trim();
+    if (!rowUid || rowUid !== uid) {
+      continue;
+    }
+
+    const primaryKey = dateKeyCol
+      ? normalizeDateKeyValue(rowValues[dateKeyCol - 1])
+      : "";
+    let matchesDate = false;
+    if (primaryKey) {
+      matchesDate = primaryKey === dateKey;
+    }
+
+    if (!matchesDate) {
+      const fallbackKey = normalizeDateKeyValue(rowValues[dateCol - 1]);
+      matchesDate = fallbackKey === dateKey;
+    }
+
+    if (!matchesDate) {
+      continue;
+    }
+
+    const checkoutValue = (rowValues[checkoutCol - 1] || "").toString().trim();
+    if (!checkoutValue) {
+      return { row: i + 2, headers: headerMap };
+    }
+    // If the latest matching row already has checkout, treat as no open row
+    // and allow a new check-in by returning null.
+    return null;
+  }
+  return null;
+}
+
+/**
+ * Normalizes spreadsheet date-like values into ISO yyyy-MM-dd strings.
+ * @param {any} value
+ * @return {string}
+ */
+function normalizeDateKeyValue(value) {
+  if (value === null || value === undefined) {
+    return "";
+  }
+
+  if (value instanceof Date) {
+    return Utilities.formatDate(value, TIME_ZONE, "yyyy-MM-dd");
+  }
+
+  const str = value.toString().trim();
+  if (!str) {
+    return "";
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+    return str;
+  }
+
+  const parsed = new Date(str);
+  if (!isNaN(parsed.getTime())) {
+    return Utilities.formatDate(parsed, TIME_ZONE, "yyyy-MM-dd");
+  }
+
+  return "";
+}
+
+/**
  * Appends an entry to the Unregistered_CARDs sheet, adding a Status column if present.
  * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
  * @param {string} uid
@@ -315,16 +586,12 @@ function handleRegistration(data) {
   const suid = (data.suid || "").toString().trim();
   const firstName = (data.firstName || "").toString().trim();
   const lastName = (data.lastName || "").toString().trim();
-  const department = (data.department || "").toString().trim();
-  const year = (data.year || "").toString().trim();
 
   const missing = [];
   if (!cardUid) missing.push("cardUid");
   if (!suid) missing.push("suid");
   if (!firstName) missing.push("firstName");
   if (!lastName) missing.push("lastName");
-  if (!department) missing.push("department");
-  if (!year) missing.push("year");
 
   if (missing.length) {
     return {
@@ -342,8 +609,6 @@ function handleRegistration(data) {
     SUID: suid,
     FirstName: firstName,
     LastName: lastName,
-    Department: department,
-    Year: year,
   };
 
   const upsertResult = upsertStudent(studentsSheet, normalizedStudent);
@@ -403,14 +668,7 @@ function upsertStudent(sheet, record) {
  * @return {Array<string>}
  */
 function ensureStudentHeaders(sheet) {
-  const expectedHeaders = [
-    "CARD_UID",
-    "SUID",
-    "FirstName",
-    "LastName",
-    "Department",
-    "Year",
-  ];
+  const expectedHeaders = ["CARD_UID", "SUID", "FirstName", "LastName"];
 
   const lastRow = sheet.getLastRow();
   if (lastRow === 0) {
@@ -521,11 +779,195 @@ function sheetToObjects(sheet) {
 function jsonResponse(payload, statusCode) {
   const output = ContentService.createTextOutput(JSON.stringify(payload));
   output.setMimeType(ContentService.MimeType.JSON);
-  output.setHeader("Access-Control-Allow-Origin", "*");
-  output.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-  output.setHeader("Access-Control-Allow-Headers", "Content-Type");
-  if (statusCode) {
-    output.setHeader("X-Status-Code", String(statusCode));
-  }
+  // Apps Script Web Apps do not support setting HTTP status codes on TextOutput.
+  // We encode status in the JSON payload instead.
+  return applyCorsHeaders(output);
+}
+
+/**
+ * Adds CORS headers to the outgoing response.
+ * @param {GoogleAppsScript.Content.TextOutput} output
+ * @return {GoogleAppsScript.Content.TextOutput}
+ */
+function applyCorsHeaders(output) {
+  // Note: Apps Script ContentService.TextOutput doesn't support setting headers.
+  // For Web Apps, responses are same-origin to the web app URL, so CORS headers are not required.
+  // If you need CORS for external origins, consider using HtmlService and returning a templated HTML that fetches internally.
   return output;
+}
+
+/**
+ * Ensures the Attendance sheet has the expected headers and returns them.
+ * Expected columns (order enforced for new sheets):
+ * CARD_UID | SUID | Date | DateKey | CheckInTime | CheckOutTime | Name
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+ * @return {Array<string>}
+ */
+function ensureAttendanceHeaders(sheet) {
+  const expected = [
+    "CARD_UID",
+    "SUID",
+    "Date",
+    "DateKey",
+    "CheckInTime",
+    "CheckOutTime",
+    "Name",
+  ];
+  const lastRow = sheet.getLastRow();
+  if (lastRow === 0) {
+    sheet.getRange(1, 1, 1, expected.length).setValues([expected]);
+    return expected;
+  }
+
+  let lastColumn = sheet.getLastColumn();
+  let headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0];
+
+  // Ensure DateKey column exists; if missing, insert after Date and backfill
+  let dateIndex = headers.indexOf("Date");
+  let dateKeyIndex = headers.indexOf("DateKey");
+  if (dateKeyIndex === -1) {
+    if (dateIndex === -1) {
+      // If Date column is missing, append both Date and DateKey at the end.
+      sheet.insertColumnsAfter(lastColumn, 2);
+      sheet.getRange(1, lastColumn + 1).setValue("Date");
+      sheet.getRange(1, lastColumn + 2).setValue("DateKey");
+      // No backfill possible without Date; leave blank.
+      lastColumn += 2;
+    } else {
+      // Insert DateKey right after Date
+      sheet.insertColumnAfter(dateIndex + 1);
+      sheet.getRange(1, dateIndex + 2).setValue("DateKey");
+      lastColumn = sheet.getLastColumn();
+      // Backfill DateKey using Date column values
+      const dataLastRow = sheet.getLastRow();
+      if (dataLastRow > 1) {
+        const dateRange = sheet.getRange(2, dateIndex + 1, dataLastRow - 1, 1);
+        const dateValues = dateRange.getValues();
+        const out = [];
+        for (let i = 0; i < dateValues.length; i++) {
+          const cell = dateValues[i][0];
+          let key = "";
+          if (cell instanceof Date) {
+            key = Utilities.formatDate(cell, TIME_ZONE, "yyyy-MM-dd");
+          } else {
+            const str = (cell || "").toString();
+            if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+              key = str;
+            } else {
+              const parsed = new Date(str);
+              if (!isNaN(parsed.getTime())) {
+                key = Utilities.formatDate(parsed, TIME_ZONE, "yyyy-MM-dd");
+              }
+            }
+          }
+          out.push([key]);
+        }
+        sheet.getRange(2, dateIndex + 2, out.length, 1).setValues(out);
+      }
+    }
+    headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  }
+
+  // Ensure other expected headers exist; if missing, append new columns with header
+  const headerSet = new Set(headers.filter((h) => !!h));
+  for (let i = 0; i < expected.length; i++) {
+    const name = expected[i];
+    if (!headerSet.has(name)) {
+      sheet.insertColumnAfter(sheet.getLastColumn());
+      const col = sheet.getLastColumn();
+      sheet.getRange(1, col).setValue(name);
+      headerSet.add(name);
+    }
+  }
+
+  const finalHeaders = sheet
+    .getRange(1, 1, 1, sheet.getLastColumn())
+    .getValues()[0];
+  return finalHeaders;
+}
+
+/**
+ * Deletes unregistered rows by UID (case-insensitive). Returns count deleted.
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+ * @param {string} uid
+ * @return {number}
+ */
+function deleteUnregisteredByUid(sheet, uid) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return 0;
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const uidIndex = headers.indexOf("CARD_UID");
+  if (uidIndex === -1) return 0;
+  const range = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn());
+  const values = range.getValues();
+  let count = 0;
+  for (let i = values.length - 1; i >= 0; i--) {
+    const v = (values[i][uidIndex] || "").toString().trim().toUpperCase();
+    if (v === uid) {
+      sheet.deleteRow(i + 2);
+      count++;
+    }
+  }
+  return count;
+}
+
+/**
+ * Deletes a single attendance row matching UID + DateKey + CheckInTime.
+ * Returns true if a row was deleted.
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+ * @param {string} uid
+ * @param {string} dateKey
+ * @param {string} checkInTime
+ */
+function deleteAttendanceRow(sheet, uid, dateKey, checkInTime) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return false;
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const headerMap = headers.reduce((acc, h, i) => {
+    acc[h] = i;
+    return acc;
+  }, {});
+  const uidIdx = headerMap.CARD_UID;
+  const dateKeyIdx = headerMap.DateKey;
+  const dateIdx = headerMap.Date;
+  const inIdx = headerMap.CheckInTime;
+  if (uidIdx === undefined || inIdx === undefined) return false;
+
+  const range = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn());
+  const values = range.getValues();
+
+  for (let i = values.length - 1; i >= 0; i--) {
+    const row = values[i];
+    const rowUid = (row[uidIdx] || "").toString().trim().toUpperCase();
+    if (rowUid !== uid) continue;
+    const rowCheckIn = (row[inIdx] || "").toString().trim();
+    // Match CheckInTime exactly (human readable or HH:mm)
+    if (rowCheckIn !== checkInTime) continue;
+
+    // Match DateKey, fallback to parsing Date column
+    let rowDateKey =
+      dateKeyIdx !== undefined ? (row[dateKeyIdx] || "").toString().trim() : "";
+    if (!rowDateKey && dateIdx !== undefined) {
+      const d = row[dateIdx];
+      if (d instanceof Date) {
+        rowDateKey = Utilities.formatDate(d, TIME_ZONE, "yyyy-MM-dd");
+      } else {
+        const s = (d || "").toString();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+          rowDateKey = s;
+        } else {
+          const parsed = new Date(s);
+          if (!isNaN(parsed.getTime())) {
+            rowDateKey = Utilities.formatDate(parsed, TIME_ZONE, "yyyy-MM-dd");
+          }
+        }
+      }
+    }
+
+    if (rowDateKey === dateKey) {
+      sheet.deleteRow(i + 2);
+      return true;
+    }
+  }
+  return false;
 }
