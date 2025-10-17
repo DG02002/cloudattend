@@ -3,7 +3,16 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
     <title>CloudAttend Dashboard</title>
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0"
+    />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&display=swap"
+    />
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
@@ -11,56 +20,54 @@
       <header class="app-header">
         <div class="header-copy">
           <h1>CloudAttend</h1>
-          <p>RFID attendance overview for today</p>
-        </div>
-        <div class="header-actions">
-          <button id="refreshButton" class="primary">Refresh</button>
-          <span id="lastUpdated" class="subtle">Updated: --</span>
+          <p>Monitor today&rsquo;s RFID check-ins at a glance.</p>
         </div>
       </header>
 
       <main class="content">
-        <section class="panel" aria-labelledby="attendance-title">
+        <section class="" aria-labelledby="attendance-title">
           <div class="panel-header">
-            <h2 id="attendance-title">Today&rsquo;s Attendance</h2>
+            <h2 id="attendance-title">Attendance</h2>
+            <span
+              id="attendanceSpinner"
+              class="loading-indicator"
+              aria-hidden="true"
+            ></span>
             <div class="panel-tools">
               <label class="search" for="searchInput">
                 <span class="sr-only">Search</span>
                 <input
                   id="searchInput"
                   type="search"
-                  placeholder="Search by name or SUID"
+                  placeholder="Search students"
                   autocomplete="off"
                 />
               </label>
             </div>
           </div>
 
-          <div class="metrics">
-            <div class="metric-card">
-              <span class="metric-label">Checked-In</span>
-              <span class="metric-value" id="presentCount">0</span>
-            </div>
-            <div class="metric-card">
-              <span class="metric-label">Total Records</span>
-              <span class="metric-value" id="totalCount">0</span>
-            </div>
-          </div>
-
-          <div class="table-wrapper" role="region" aria-live="polite">
-            <table class="data-table">
+          <div
+            class="table-wrapper"
+            role="region"
+            aria-live="polite"
+            aria-busy="true"
+            data-busy-target="attendance"
+          >
+            <table class="data-table" aria-describedby="attendance-caption">
+              <caption id="attendance-caption" class="sr-only">
+                All attendance records from the database
+              </caption>
               <thead>
                 <tr>
                   <th scope="col">Student</th>
-                  <th scope="col" class="align-right">SUID</th>
-                  <th scope="col">Check-In</th>
-                  <th scope="col">Check-Out</th>
-                  <th scope="col">Status</th>
+                  <th scope="col">SUID</th>
+                  <th scope="col">Check-in</th>
+                  <th scope="col">Check-out</th>
                 </tr>
               </thead>
               <tbody id="attendanceBody">
                 <tr>
-                  <td colspan="5" class="empty">Loading&hellip;</td>
+                  <td colspan="4" class="empty">Loading&hellip;</td>
                 </tr>
               </tbody>
             </table>
@@ -69,76 +76,75 @@
 
         <section class="panel" aria-labelledby="unregistered-title">
           <div class="panel-header">
-            <h2 id="unregistered-title">Unregistered Cards</h2>
+            <h2 id="unregistered-title">Unknown Cards</h2>
           </div>
 
           <div class="unregistered-grid">
             <div class="card-list" id="unregisteredList" aria-live="polite">
               <p class="placeholder">Loading&hellip;</p>
             </div>
-
-            <aside class="card-form" aria-label="Register student form">
-              <h3>Register Student</h3>
-              <form id="registrationForm" novalidate>
-                <label class="form-field">
-                  <span>RFID Card UID</span>
-                  <input
-                    id="formCardUid"
-                    name="cardUid"
-                    type="text"
-                    placeholder="Select a card from the list"
-                    readonly
-                    required
-                  />
-                </label>
-                <label class="form-field">
-                  <span>SUID</span>
-                  <input id="formSuid" name="suid" type="text" required />
-                </label>
-                <label class="form-field">
-                  <span>First Name</span>
-                  <input
-                    id="formFirstName"
-                    name="firstName"
-                    type="text"
-                    required
-                  />
-                </label>
-                <label class="form-field">
-                  <span>Last Name</span>
-                  <input
-                    id="formLastName"
-                    name="lastName"
-                    type="text"
-                    required
-                  />
-                </label>
-                <label class="form-field">
-                  <span>Department</span>
-                  <input
-                    id="formDepartment"
-                    name="department"
-                    type="text"
-                    required
-                  />
-                </label>
-                <label class="form-field">
-                  <span>Year</span>
-                  <input id="formYear" name="year" type="text" required />
-                </label>
-
-                <div class="form-actions">
-                  <button type="submit" class="primary">Register</button>
-                  <button type="button" id="clearSelectionButton">Clear</button>
-                </div>
-              </form>
-            </aside>
           </div>
+        </section>
+
+        <!-- Link a student card panel -->
+        <section class="panel" aria-labelledby="link-title">
+          <div class="panel-header">
+            <h2 id="link-title">Link a student card</h2>
+          </div>
+
+          <form
+            id="registrationForm"
+            class=""
+            role="region"
+            aria-label="Register student form"
+            novalidate
+          >
+            <label class="form-field">
+              <span>RFID Card UID</span>
+              <input
+                id="formCardUid"
+                name="cardUid"
+                type="text"
+                placeholder="Select a card from the list"
+                readonly
+                required
+              />
+            </label>
+            <label class="form-field">
+              <span>SUID</span>
+              <input id="formSuid" name="suid" type="text" required />
+            </label>
+            <label class="form-field">
+              <span>First Name</span>
+              <input id="formFirstName" name="firstName" type="text" required />
+            </label>
+            <label class="form-field">
+              <span>Last Name</span>
+              <input id="formLastName" name="lastName" type="text" required />
+            </label>
+
+            <div class="form-actions">
+              <button type="submit" class="primary">Add student</button>
+              <button type="button" id="clearSelectionButton">
+                Clear selection
+              </button>
+            </div>
+          </form>
         </section>
       </main>
     </div>
 
-    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <div
+      id="toast"
+      class="toast"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    ></div>
+
+    <footer class="page-footer">
+      <small>&copy; Darshan Gangani</small>
+    </footer>
 
     <script src="script.js" defer></script>
   </body>
