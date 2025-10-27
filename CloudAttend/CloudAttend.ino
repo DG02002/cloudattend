@@ -674,7 +674,7 @@ String composeStatusMessage(const String &primary, const String &secondary)
 
 void displayBootTitle()
 {
-    const String title = "CloudAttend v0.2";
+    const String title = "CloudAttend v0.1";
     const uint8_t padding = (title.length() < kLcdColumns)
                                 ? (kLcdColumns - title.length()) / 2
                                 : 0;
