@@ -116,10 +116,7 @@ flowchart LR
 ## References
 
 - [Original Ideas are Overrated](https://www.youtube.com/watch?v=41IMbwQR-dc)
-
-- **UI design**
-
-  - [3 Shadows (CodePen by Sajid)](https://codepen.io/whosajid/pen/LEGRBzp) — Dark theme and subtle elevation inspiration.
+- [3 Shadows (CodePen by Sajid)](https://codepen.io/whosajid/pen/LEGRBzp) - Dark theme and subtle elevation inspiration.
 
 - **Libraries and board support**
 
