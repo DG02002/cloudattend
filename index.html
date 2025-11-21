@@ -24,7 +24,30 @@
     <div class="app-shell">
       <header class="app-header">
         <div class="header-copy">
-          <h1>CloudAttend</h1>
+          <div class="header-title-row">
+            <h1 class="header-title">
+              <a
+                class="app-title-link"
+                href="https://dg02002.github.io/cloudattend/"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                CloudAttend
+              </a>
+            </h1>
+            <a
+              class="repo-link"
+              href="https://github.com/DG02002/cloudattend"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="View CloudAttend on GitHub"
+            >
+              <img
+                src="https://github.githubassets.com/favicons/favicon-dark.svg"
+                alt="GitHub logo"
+              />
+            </a>
+          </div>
           <p>Monitor today&rsquo;s RFID check-ins at a glance.</p>
         </div>
       </header>
@@ -64,15 +87,16 @@
               </caption>
               <thead>
                 <tr>
-                  <th scope="col">Student</th>
                   <th scope="col">SUID</th>
+                  <th scope="col">Student</th>
+                  <th scope="col">Date</th>
                   <th scope="col">Check-in</th>
                   <th scope="col">Check-out</th>
                 </tr>
               </thead>
               <tbody id="attendanceBody">
                 <tr>
-                  <td colspan="4" class="empty">Loading&hellip;</td>
+                  <td colspan="5" class="empty">Loading&hellip;</td>
                 </tr>
               </tbody>
             </table>

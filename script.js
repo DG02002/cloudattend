@@ -10,12 +10,25 @@ const APPS_SCRIPT_DEPLOYMENT_ID =
   "AKfycbz0F26gZ5EX5VNtZYW2Tr_gyGVgcEMX0LkXSdf4Q64apiLkEBvbplifFICe1TgEHtTo";
 const API_URL = `${APPS_SCRIPT_BASE_URL}${APPS_SCRIPT_DEPLOYMENT_ID}/exec`;
 const LOG_PREFIX = "[CloudAttend]";
+const DISPLAY_TIME_ZONE = "Asia/Kolkata";
 
-const ATTENDANCE_COLUMN_COUNT = 4;
+const ATTENDANCE_COLUMN_COUNT = 5;
 const AUTO_REFRESH_INTERVAL_MS = 15000;
 const AUTO_REFRESH_ERROR_WINDOW_MS = 30000;
 const ADD_STUDENT_LABEL = "Add student";
 const ADD_STUDENT_LOADING_LABEL = "Adding...";
+const DATE_PART_FORMATTER = new Intl.DateTimeFormat("en-CA", {
+  timeZone: DISPLAY_TIME_ZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+const HUMAN_DATE_FORMATTER = new Intl.DateTimeFormat(undefined, {
+  timeZone: DISPLAY_TIME_ZONE,
+  day: "numeric",
+  month: "long",
+  year: "numeric",
+});
 
 /**
  * @type {{
@@ -217,20 +230,15 @@ function renderAttendance() {
 
   // Sort by date (newest first), then by check-in time
   filtered.sort((a, b) => {
-    const aDate = getRecordDate(a);
-    const bDate = getRecordDate(b);
-    if (aDate && bDate && aDate !== bDate) {
-      return bDate.localeCompare(aDate);
+    const aDateValue = parseDateToSortable(getSortableDateKey(a));
+    const bDateValue = parseDateToSortable(getSortableDateKey(b));
+    if (aDateValue !== bDateValue) {
+      return aDateValue - bDateValue; // oldest dates first
     }
-    if (!aDate && bDate) {
-      return 1;
-    }
-    if (aDate && !bDate) {
-      return -1;
-    }
-    const aKey = parseTimeToSortable(getCheckIn(a));
-    const bKey = parseTimeToSortable(getCheckIn(b));
-    return aKey - bKey;
+
+    const aTimeKey = parseTimeToSortable(getCheckIn(a));
+    const bTimeKey = parseTimeToSortable(getCheckIn(b));
+    return aTimeKey - bTimeKey;
   });
 
   if (filtered.length === 0) {
@@ -252,20 +260,24 @@ function renderAttendance() {
     const row = document.createElement("tr");
     const name = getDisplayName(entry, studentLookup);
     const suid = entry.SUID || "";
+    const recordDate = getRecordDate(entry);
+    const dateDisplay = formatHumanDate(recordDate) || "--";
     const checkInRaw = getCheckIn(entry);
     const checkOutRaw = getCheckOut(entry);
     const checkIn = formatTime12(checkInRaw) || "--";
     const checkOut = formatTime12(checkOutRaw) || "--";
     const isPresent = !checkOutRaw;
+    const isOverdue = isPresent && !!recordDate && recordDate < state.todayKey;
 
-    if (isPresent) {
+    if (isOverdue) {
+      row.classList.add("is-overdue");
+    } else if (isPresent) {
       row.classList.add("is-present");
     }
 
-    row.appendChild(createCell(name));
-    row.appendChild(createCell(suid));
-    row.appendChild(createCell(checkIn));
-    row.appendChild(createCell(checkOut));
+    [suid || "--", name, dateDisplay, checkIn, checkOut].forEach((value) => {
+      row.appendChild(createCell(value));
+    });
 
     fragment.appendChild(row);
   });
@@ -621,7 +633,7 @@ function getDisplayName(entry, lookup) {
  * @return {string}
  */
 function getRecordDate(entry) {
-  const fromKey = normalizeDateString(entry.DateKey || entry.dateKey);
+  const fromKey = coerceDateToYmd(entry.DateKey || entry.dateKey);
   if (fromKey) {
     return fromKey;
   }
@@ -635,22 +647,7 @@ function getRecordDate(entry) {
     entry.timestamp ||
     "";
 
-  if (rawSource instanceof Date) {
-    return formatDateYmd(rawSource);
-  }
-
-  const asString = (rawSource || "").toString();
-  const normalized = normalizeDateString(asString);
-  if (normalized) {
-    return normalized;
-  }
-
-  const parsed = new Date(asString);
-  if (!isNaN(parsed.getTime())) {
-    return formatDateYmd(parsed);
-  }
-
-  return "";
+  return coerceDateToYmd(rawSource);
 }
 
 /**
@@ -671,15 +668,61 @@ function normalizeDateString(value) {
 }
 
 /**
+ * Attempts to coerce various date-like values into YYYY-MM-DD.
+ * @param {unknown} value
+ * @return {string}
+ */
+function coerceDateToYmd(value) {
+  if (value instanceof Date) {
+    return formatDateYmd(value);
+  }
+  if (value === null || value === undefined) {
+    return "";
+  }
+  const raw = value.toString().trim();
+  if (!raw) {
+    return "";
+  }
+  if (raw.includes("T") || raw.includes(":")) {
+    const parsed = new Date(raw);
+    if (!isNaN(parsed.getTime())) {
+      return formatDateYmd(parsed);
+    }
+  }
+  const normalized = normalizeDateString(raw);
+  if (normalized) {
+    return normalized;
+  }
+  const fallback = new Date(raw);
+  if (!isNaN(fallback.getTime())) {
+    return formatDateYmd(fallback);
+  }
+  return "";
+}
+
+/**
  * Formats a Date into YYYY-MM-DD.
  * @param {Date} date
  * @return {string}
  */
 function formatDateYmd(date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
+  const parts = DATE_PART_FORMATTER.formatToParts(date);
+  let year = "";
+  let month = "";
+  let day = "";
+  parts.forEach((part) => {
+    if (part.type === "year") {
+      year = part.value;
+    } else if (part.type === "month") {
+      month = part.value;
+    } else if (part.type === "day") {
+      day = part.value;
+    }
+  });
+  if (year && month && day) {
+    return `${year}-${month}-${day}`;
+  }
+  return DATE_PART_FORMATTER.format(date);
 }
 
 function getTodayKey() {
@@ -735,21 +778,13 @@ function formatHumanDate(value) {
   if (isoMatch) {
     const dt = new Date(`${isoMatch[1]}T00:00:00Z`);
     if (!isNaN(dt.getTime())) {
-      return dt.toLocaleDateString(undefined, {
-        day: "numeric",
-        month: "long",
-        year: "numeric",
-      });
+      return HUMAN_DATE_FORMATTER.format(dt);
     }
   }
 
   const parsed = new Date(raw);
   if (!isNaN(parsed.getTime())) {
-    return parsed.toLocaleDateString(undefined, {
-      day: "numeric",
-      month: "long",
-      year: "numeric",
-    });
+    return HUMAN_DATE_FORMATTER.format(parsed);
   }
 
   return raw;
@@ -820,6 +855,44 @@ function parseTimeToSortable(value) {
     const h = parseInt(m24[1], 10);
     const m = parseInt(m24[2], 10);
     return h * 60 + m;
+  }
+  return Number.POSITIVE_INFINITY;
+}
+
+/**
+ * Returns the best available date-like string for sorting.
+ * @param {AnyRecord} entry
+ * @return {string}
+ */
+function getSortableDateKey(entry) {
+  return (
+    getRecordDate(entry) ||
+    coerceDateToYmd(entry.Timestamp || entry.timestamp) ||
+    ""
+  );
+}
+
+/**
+ * Converts a date-like value into a sortable timestamp.
+ * @param {string | Date} value
+ * @return {number}
+ */
+function parseDateToSortable(value) {
+  if (value instanceof Date) {
+    return value.getTime();
+  }
+  const raw = (value || "").toString().trim();
+  if (!raw) {
+    return Number.POSITIVE_INFINITY;
+  }
+  const isoPattern = /^\d{4}-\d{2}-\d{2}$/;
+  const datePortion = raw.length >= 10 ? raw.slice(0, 10) : raw;
+  const candidate = isoPattern.test(datePortion)
+    ? `${datePortion}T00:00:00Z`
+    : raw;
+  const parsed = new Date(candidate);
+  if (!isNaN(parsed.getTime())) {
+    return parsed.getTime();
   }
   return Number.POSITIVE_INFINITY;
 }
